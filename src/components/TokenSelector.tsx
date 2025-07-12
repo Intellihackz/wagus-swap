@@ -90,10 +90,10 @@ export const TokenSelector = memo<TokenSelectorProps>(({
       
       <div className="flex gap-2">
         <Input
-          type="number"
+          type={isReadOnly ? "text" : "number"} // Use text for read-only to allow formatted display
           min="0"
           placeholder={placeholder}
-          value={amount}
+          value={isReadOnly ? amount : (amount?.replace(/,/g, '') || '')} // Remove commas only for editable number inputs
           onChange={onAmountChange ? (e) => onAmountChange(e.target.value) : undefined}
           onKeyDown={handleKeyDown}
           readOnly={isReadOnly}

@@ -61,9 +61,9 @@ export default function SwapUi() {
     }
   }, [authenticated, walletAddress, fetchTokenBalances]);
 
-  // Debug logging to see user data (only in development)
+  // Debug logging to see user data (only in development) - optimized to reduce re-renders
   useEffect(() => {
-    if (process.env.NODE_ENV === 'development' && authenticated && user) {
+    if (process.env.NODE_ENV === 'development' && authenticated && user && walletAddress) {
       console.log('User data:', {
         userId: user.id,
         linkedAccounts: user.linkedAccounts?.map(account => ({
@@ -73,7 +73,7 @@ export default function SwapUi() {
         walletAddress: walletAddress,
       });
     }
-  }, [authenticated, user, walletAddress]);
+  }, [authenticated, user?.id, walletAddress]); // More specific dependencies
 
   const handleConnectWallet = async () => {
     try {
@@ -101,7 +101,10 @@ export default function SwapUi() {
   // Exchange rate calculation
   const exchangeRate = useMemo(() => {
     if (!hasAmount || !toAmount || isLoadingQuote) return null;
-    const rate = Number.parseFloat(toAmount.replace(/,/g, '')) / Number.parseFloat(fromAmount.replace(/,/g, ''));
+    const fromNum = Number(fromAmount);
+    const toNum = Number(toAmount);
+    if (fromNum === 0 || isNaN(fromNum) || isNaN(toNum)) return null;
+    const rate = toNum / fromNum;
     return formatNumberWithCommas(rate);
   }, [hasAmount, toAmount, isLoadingQuote, fromAmount]);
 
@@ -175,7 +178,7 @@ export default function SwapUi() {
             <Label className="text-sm font-medium text-white">To</Label>
             <TokenSelector
               token={toToken}
-              amount={toAmount}
+              amount={toAmount ? formatNumberWithCommas(Number(toAmount)) : ""}
               balance={getDisplayBalance(toToken.symbol, authenticated)}
               isAuthenticated={authenticated}
               isReadOnly={true}

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { Token } from "@/types/token";
 import { useJupiterQuote } from "./useJupiterQuote";
 import { useTokenBalances } from "./useTokenBalances";
@@ -12,13 +12,13 @@ export const useSwap = () => {
   const [toAmount, setToAmount] = useState("");
 
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const { 
-    isLoadingQuote, 
-    quoteError, 
+  const {
+    isLoadingQuote,
+    quoteError,
     getJupiterQuote, 
     getTokenDecimals, 
-    clearQuoteError 
+    clearQuoteError,
+    cancelPendingRequests
   } = useJupiterQuote();
 
   const {
@@ -28,6 +28,16 @@ export const useSwap = () => {
     clearBalances,
     getTokenBalance,
   } = useTokenBalances();
+
+  // Cleanup effect to cancel pending requests for better performance
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+      cancelPendingRequests();
+    };
+  }, [cancelPendingRequests]);
 
   const getDisplayBalance = useCallback((tokenSymbol: string, isAuthenticated: boolean): string => {
     if (!isAuthenticated) return "--";
@@ -44,7 +54,7 @@ export const useSwap = () => {
 
     debounceTimeoutRef.current = setTimeout(async () => {
       if (value && parseFloat(value) > 0) {
-        // Get actual decimals for output token
+        // Get actual decimals for output token (with caching for faster response)
         const actualOutputDecimals = await getTokenDecimals(toToken.mint);
         const outputDecimals = actualOutputDecimals || toToken.decimals || 9;
 
@@ -57,14 +67,13 @@ export const useSwap = () => {
         );
         
         if (outputAmount !== null) {
-          // Format with commas for better readability
-          const formattedAmount = formatNumberWithCommas(outputAmount);
-          setToAmount(formattedAmount);
+          // Store raw number as string for accuracy
+          setToAmount(outputAmount.toString());
         } else {
           setToAmount("");
         }
       }
-    }, QUOTE_DEBOUNCE_MS);
+    }, QUOTE_DEBOUNCE_MS); // Now using 150ms for much faster response
   }, [fromToken, toToken, getJupiterQuote, getTokenDecimals]);
 
   const handleFromAmountChange = useCallback((value: string) => {
@@ -91,6 +100,9 @@ export const useSwap = () => {
   }, [fromToken, toToken, fromAmount, toAmount, clearQuoteError]);
 
   const handleTokenSelect = useCallback((token: Token, isFromToken: boolean) => {
+    // Cancel any pending quote requests for faster token switching
+    cancelPendingRequests();
+    
     if (isFromToken) {
       setFromToken(token);
       // Auto-switch the "to" token to the opposite
@@ -110,7 +122,7 @@ export const useSwap = () => {
     setFromAmount("");
     setToAmount("");
     clearQuoteError();
-  }, [clearQuoteError]);
+  }, [cancelPendingRequests, clearQuoteError]);
 
   const handleMaxClick = useCallback(() => {
     const maxBalance = getTokenBalance(fromToken.symbol);

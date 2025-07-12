@@ -28,4 +28,4 @@ export const JUPITER_API_BASE = "https://lite-api.jup.ag/swap/v1";
 export const JUPITER_TOKEN_LIST = "https://token.jup.ag/all";
 
 export const DEFAULT_SLIPPAGE_BPS = 50;
-export const QUOTE_DEBOUNCE_MS = 500;
+export const QUOTE_DEBOUNCE_MS = 150; // Reduced from 500ms for faster response
