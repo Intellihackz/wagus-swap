@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ArrowUpDown, ChevronDown, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,9 +18,20 @@ import Image from "next/image";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 
 const tokens = [
-  { symbol: "WAGUS", name: "Wagus Token", balance: "1,234.56" },
-  { symbol: "USDC", name: "USD Coin", balance: "5,678.90" },
-  { symbol: "SOL", name: "Solana", balance: "123.45" },
+  { 
+    symbol: "WAGUS", 
+    name: "Wagus Token", 
+    balance: "1,234.56",
+    mint: "7BMxgTQhTthoBcQizzFoLyhmSDscM56uMramXGMhpump", // WAGUS token mint
+    decimals: 6 // Many tokens use 6 decimals instead of 9
+  },
+  { 
+    symbol: "SOL", 
+    name: "Solana", 
+    balance: "123.45",
+    mint: "So11111111111111111111111111111111111111112", // SOL mint (wrapped SOL)
+    decimals: 9
+  },
 ];
 
 export default function SwapUi() {
@@ -30,10 +41,79 @@ export default function SwapUi() {
   const [toToken, setToToken] = useState(tokens[1]);
   const [fromAmount, setFromAmount] = useState("");
   const [toAmount, setToAmount] = useState("");
+  const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
 
   // Get wallet data from user object
   const walletAccount = user?.linkedAccounts?.find(account => account.type === 'wallet');
   const walletAddress = walletAccount && 'address' in walletAccount ? walletAccount.address : "";
+
+  // Function to get token info from Jupiter's token list
+  const getTokenDecimals = async (mintAddress: string) => {
+    try {
+      const response = await fetch('https://token.jup.ag/all');
+      if (response.ok) {
+        const tokens = await response.json();
+        const token = tokens.find((t: any) => t.address === mintAddress);
+        if (token) {
+          console.log(`Found token ${token.symbol} with ${token.decimals} decimals`);
+          return token.decimals;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch token info from Jupiter, using default decimals');
+    }
+    return null;
+  };
+
+  // Function to get quote from Jupiter API
+  const getJupiterQuote = async (inputMint: string, outputMint: string, amount: string, decimals: number) => {
+    try {
+      setIsLoadingQuote(true);
+      setQuoteError(null);
+      
+      // Get actual decimals for output token
+      const actualOutputDecimals = await getTokenDecimals(outputMint);
+      const outputToken = tokens.find(token => token.mint === outputMint);
+      const outputDecimals = actualOutputDecimals || outputToken?.decimals || 9;
+      
+      // Convert amount to lamports/atomic units
+      const amountInLamports = Math.floor(parseFloat(amount) * Math.pow(10, decimals));
+      
+      const response = await fetch(
+        `https://lite-api.jup.ag/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInLamports}&slippageBps=50&restrictIntermediateTokens=true`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const quoteData = await response.json();
+      
+      // Debug logging
+      console.log('Jupiter API Response:', {
+        inputMint,
+        outputMint,
+        inAmount: quoteData.inAmount,
+        outAmount: quoteData.outAmount,
+        inputDecimals: decimals,
+        outputDecimals: outputDecimals
+      });
+      
+      // Convert output amount back to decimal
+      const outputAmount = parseFloat(quoteData.outAmount) / Math.pow(10, outputDecimals);
+      
+      console.log('Converted output amount:', outputAmount);
+      
+      return outputAmount;
+    } catch (error) {
+      console.error('Error fetching Jupiter quote:', error);
+      setQuoteError('Failed to fetch quote');
+      return null;
+    } finally {
+      setIsLoadingQuote(false);
+    }
+  };
   
 
   const handleConnectWallet = async () => {
@@ -73,24 +153,51 @@ export default function SwapUi() {
     setToToken(tempToken);
     setFromAmount(toAmount);
     setToAmount(tempAmount);
+    setQuoteError(null);
+    setIsLoadingQuote(false);
   };
+
+  // Debounced quote fetching
+  const debounceQuote = useCallback(
+    (() => {
+      let timeoutId: NodeJS.Timeout;
+      return (value: string) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(async () => {
+          if (value && parseFloat(value) > 0) {
+            const outputAmount = await getJupiterQuote(
+              fromToken.mint,
+              toToken.mint,
+              value,
+              fromToken.decimals
+            );
+            
+            if (outputAmount !== null) {
+              // Format with commas for better readability
+              const formattedAmount = formatNumberWithCommas(outputAmount);
+              setToAmount(formattedAmount);
+            } else {
+              setToAmount("");
+            }
+          }
+        }, 500); // 500ms delay
+      };
+    })(),
+    [fromToken, toToken]
+  );
 
   const handleFromAmountChange = (value: string) => {
     // Remove any negative signs and prevent negative values
     const cleanValue = value.replace(/-/g, "");
 
     setFromAmount(cleanValue);
-    // Simple mock conversion rate (in real app, this would call an API)
-    if (cleanValue) {
-      const rate =
-        fromToken.symbol === "USDC"
-          ? 0.95
-          : fromToken.symbol === "SOL"
-          ? 180
-          : 0.001;
-      setToAmount((Number.parseFloat(cleanValue) * rate).toFixed(6));
+    
+    if (cleanValue && parseFloat(cleanValue) > 0) {
+      setIsLoadingQuote(true);
+      debounceQuote(cleanValue);
     } else {
       setToAmount("");
+      setIsLoadingQuote(false);
     }
   };
 
@@ -103,6 +210,31 @@ export default function SwapUi() {
 
   const formatAddress = (address: string) => {
     return `${address.slice(0, 4)}...${address.slice(-4)}`;
+  };
+
+  // Function to format numbers with commas
+  const formatNumberWithCommas = (num: number): string => {
+    let formattedNumber;
+    
+    if (num < 0.0001) {
+      // Use 10 decimal places for very small numbers
+      formattedNumber = num.toFixed(10);
+    } else if (num < 1) {
+      // Use 8 decimal places for small numbers
+      formattedNumber = num.toFixed(8);
+    } else {
+      // Use 6 decimal places for normal numbers
+      formattedNumber = num.toFixed(6);
+    }
+    
+    // Split into integer and decimal parts
+    const [integerPart, decimalPart] = formattedNumber.split('.');
+    
+    // Add commas to integer part
+    const formattedInteger = parseInt(integerPart).toLocaleString();
+    
+    // Return with decimal part if it exists
+    return decimalPart ? `${formattedInteger}.${decimalPart}` : formattedInteger;
   };
 
   // Show loading state while Privy is initializing
@@ -179,7 +311,19 @@ export default function SwapUi() {
                     {tokens.map((token) => (
                       <DropdownMenuItem
                         key={token.symbol}
-                        onClick={() => setFromToken(token)}
+                        onClick={() => {
+                          setFromToken(token);
+                          // Auto-switch the "to" token to the opposite
+                          const oppositeToken = tokens.find(t => t.symbol !== token.symbol);
+                          if (oppositeToken) {
+                            setToToken(oppositeToken);
+                          }
+                          // Clear amounts and quote states when switching tokens
+                          setFromAmount("");
+                          setToAmount("");
+                          setQuoteError(null);
+                          setIsLoadingQuote(false);
+                        }}
                         className="text-white hover:bg-white hover:text-black cursor-pointer"
                       >
                         <div className="flex flex-col">
@@ -195,7 +339,7 @@ export default function SwapUi() {
                 <div className="text-right">
                   <div className="text-xs text-white opacity-70">Balance</div>
                   <div className="font-medium text-white">
-                    {authenticated ? fromToken.balance : "--"}
+                    {authenticated ? formatNumberWithCommas(parseFloat(fromToken.balance)) : "--"}
                   </div>
                 </div>
               </div>
@@ -245,7 +389,19 @@ export default function SwapUi() {
                     {tokens.map((token) => (
                       <DropdownMenuItem
                         key={token.symbol}
-                        onClick={() => setToToken(token)}
+                        onClick={() => {
+                          setToToken(token);
+                          // Auto-switch the "from" token to the opposite
+                          const oppositeToken = tokens.find(t => t.symbol !== token.symbol);
+                          if (oppositeToken) {
+                            setFromToken(oppositeToken);
+                          }
+                          // Clear amounts and quote states when switching tokens
+                          setFromAmount("");
+                          setToAmount("");
+                          setQuoteError(null);
+                          setIsLoadingQuote(false);
+                        }}
                         className="text-white hover:bg-white hover:text-black cursor-pointer"
                       >
                         <div className="flex flex-col">
@@ -261,14 +417,14 @@ export default function SwapUi() {
                 <div className="text-right">
                   <div className="text-xs text-white opacity-70">Balance</div>
                   <div className="font-medium text-white">
-                    {authenticated ? toToken.balance : "--"}
+                    {authenticated ? formatNumberWithCommas(parseFloat(toToken.balance)) : "--"}
                   </div>
                 </div>
               </div>
               <Input
                 type="number"
                 min="0"
-                placeholder="0.00"
+                placeholder={isLoadingQuote ? "Loading..." : "0.00"}
                 value={toAmount}
                 readOnly
                 disabled={!authenticated}
@@ -298,13 +454,20 @@ export default function SwapUi() {
           )}
 
           {/* Exchange Rate Info */}
-          {authenticated && fromAmount && toAmount && (
+          {authenticated && fromAmount && toAmount && !isLoadingQuote && (
             <div className="text-center text-sm text-white opacity-70 border-t-2 border-white pt-4">
               1 ${fromToken.symbol} ={" "}
-              {(
-                Number.parseFloat(toAmount) / Number.parseFloat(fromAmount)
-              ).toFixed(6)}{" "}
-              ${toToken.symbol}
+              {(() => {
+                const rate = Number.parseFloat(toAmount.replace(/,/g, '')) / Number.parseFloat(fromAmount.replace(/,/g, ''));
+                return formatNumberWithCommas(rate);
+              })()} ${toToken.symbol}
+            </div>
+          )}
+
+          {/* Quote Error */}
+          {quoteError && (
+            <div className="text-center text-sm text-red-400 border-t-2 border-white pt-4">
+              {quoteError}
             </div>
           )}
         </CardContent>
