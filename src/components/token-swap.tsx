@@ -16,6 +16,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Image from "next/image";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { PublicKey, Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync, getAccount, getMint } from "@solana/spl-token";
+
+// Solana connection - Using Helius RPC with API key for better reliability
+const SOLANA_CONNECTION = new Connection("https://mainnet.helius-rpc.com/?api-key=75f1f27b-b99d-4578-9efd-c585e383ac7c", "confirmed");
 
 const tokens = [
   { 
@@ -43,6 +48,10 @@ export default function SwapUi() {
   const [toAmount, setToAmount] = useState("");
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  
+  // State to store actual token balances
+  const [tokenBalances, setTokenBalances] = useState<{[key: string]: number}>({});
+  const [isLoadingBalances, setIsLoadingBalances] = useState(false);
 
   // Get wallet data from user object
   const walletAccount = user?.linkedAccounts?.find(account => account.type === 'wallet');
@@ -129,6 +138,8 @@ export default function SwapUi() {
       await logout();
       setFromAmount("");
       setToAmount("");
+      setTokenBalances({});
+      setIsLoadingBalances(false);
     } catch (error) {
       console.error("Failed to disconnect wallet:", error);
     }
@@ -145,6 +156,13 @@ export default function SwapUi() {
       walletAddress: walletAddress,
     });
   }
+
+  // Effect to get token addresses when wallet is connected
+  useEffect(() => {
+    if (authenticated && walletAddress) {
+      getUserTokenAddresses(walletAddress);
+    }
+  }, [authenticated, walletAddress]);
 
   const handleSwapTokens = () => {
     const tempToken = fromToken;
@@ -212,6 +230,20 @@ export default function SwapUi() {
     return `${address.slice(0, 4)}...${address.slice(-4)}`;
   };
 
+  // Helper function to get actual token balance
+  const getTokenBalance = (tokenSymbol: string): number => {
+    return tokenBalances[tokenSymbol] || 0;
+  };
+
+  // Helper function to format balance for display
+  const getDisplayBalance = (tokenSymbol: string): string => {
+    if (!authenticated) return "--";
+    if (isLoadingBalances) return "Loading...";
+    
+    const balance = getTokenBalance(tokenSymbol);
+    return formatNumberWithCommas(balance);
+  };
+
   // Function to format numbers with commas
   const formatNumberWithCommas = (num: number): string => {
     let formattedNumber;
@@ -235,6 +267,120 @@ export default function SwapUi() {
     
     // Return with decimal part if it exists
     return decimalPart ? `${formattedInteger}.${decimalPart}` : formattedInteger;
+  };
+
+  // Function to get user's token addresses
+  const getUserTokenAddresses = async (walletAddress: string) => {
+    try {
+      if (!walletAddress) {
+        console.log("❌ No wallet address available");
+        return;
+      }
+
+      setIsLoadingBalances(true);
+      const WALLET = new PublicKey(walletAddress);
+      
+      console.log("🔍 Getting token addresses for wallet:", walletAddress);
+      
+      const balancePromises = tokens.map(async (token) => {
+        try {
+          if (token.symbol === "SOL") {
+            // For SOL, use native getBalance method
+            console.log(`✅ ${token.symbol} (${token.name}) - using native balance method`);
+            const balance = await getSolBalance(SOLANA_CONNECTION, walletAddress);
+            return { symbol: token.symbol, balance: balance || 0 };
+          } else {
+            // For SPL tokens, use associated token account method
+            const MINT = new PublicKey(token.mint);
+            const associatedTokenAddress = getAssociatedTokenAddressSync(MINT, WALLET);
+            
+            console.log(
+              `✅ ${token.symbol} (${token.name}) associated token address:`,
+              associatedTokenAddress.toBase58()
+            );
+
+            // Get the actual token balance
+            const balance = await getTokenBalanceSpl(SOLANA_CONNECTION, associatedTokenAddress, token.symbol);
+            return { symbol: token.symbol, balance: balance || 0 };
+          }
+        } catch (error) {
+          console.log(`❌ Error getting ${token.symbol} token address:`, error);
+          return { symbol: token.symbol, balance: 0 };
+        }
+      });
+
+      // Wait for all balance fetches to complete
+      const results = await Promise.all(balancePromises);
+      
+      // Update state with fetched balances
+      const newBalances: {[key: string]: number} = {};
+      results.forEach(result => {
+        newBalances[result.symbol] = result.balance;
+      });
+      
+      setTokenBalances(newBalances);
+      setIsLoadingBalances(false);
+      
+    } catch (error) {
+      console.error("❌ Error getting token addresses:", error);
+      setIsLoadingBalances(false);
+    }
+  };
+
+  // Function to get SOL balance using native getBalance method
+  const getSolBalance = async (connection: Connection, walletAddress: string) => {
+    try {
+      const publicKey = new PublicKey(walletAddress);
+      const balance = await connection.getBalance(publicKey);
+      const solBalance = balance / LAMPORTS_PER_SOL;
+      
+      console.log(`💰 SOL Balance (using native getBalance):`, solBalance);
+      return solBalance;
+    } catch (error) {
+      console.log(`❌ Error getting SOL balance:`, error);
+      return null;
+    }
+  };
+
+  // Function to get token balance using SPL Token API
+  const getTokenBalanceSpl = async (connection: Connection, tokenAccount: PublicKey, tokenSymbol: string) => {
+    try {
+      const info = await getAccount(connection, tokenAccount);
+      const amount = Number(info.amount);
+      const mint = await getMint(connection, info.mint);
+      const balance = amount / (10 ** mint.decimals);
+      
+      console.log(`💰 ${tokenSymbol} Balance (using SPL Token API):`, balance);
+      return balance;
+    } catch (error) {
+      console.log(`❌ Error getting ${tokenSymbol} balance:`, error);
+      
+      // Handle different types of errors
+      if (error instanceof Error) {
+        // Account doesn't exist (normal for new wallets)
+        if (error.message.includes('could not find account') || 
+            error.message.includes('Invalid param: could not find account') ||
+            error.message.includes('Account does not exist')) {
+          console.log(`💰 ${tokenSymbol} Balance: 0 (account not created yet)`);
+          return 0;
+        }
+        
+        // RPC rate limit or access denied
+        if (error.message.includes('403') || error.message.includes('Access forbidden')) {
+          console.log(`⚠️ ${tokenSymbol} Balance: Unable to fetch (RPC rate limit - try again later)`);
+          return null;
+        }
+        
+        // Other RPC errors
+        if (error.message.includes('failed to get info about account')) {
+          console.log(`⚠️ ${tokenSymbol} Balance: RPC error (try refreshing)`);
+          return null;
+        }
+      }
+      
+      // Unknown error
+      return null;
+    }
   };
 
   // Show loading state while Privy is initializing
@@ -339,20 +485,35 @@ export default function SwapUi() {
                 <div className="text-right">
                   <div className="text-xs text-white opacity-70">Balance</div>
                   <div className="font-medium text-white">
-                    {authenticated ? formatNumberWithCommas(parseFloat(fromToken.balance)) : "--"}
+                    {getDisplayBalance(fromToken.symbol)}
                   </div>
                 </div>
               </div>
-              <Input
-                type="number"
-                min="0"
-                placeholder="0.00"
-                value={fromAmount}
-                onChange={(e) => handleFromAmountChange(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={!authenticated}
-                className="text-right text-xl font-bold border-2 border-white bg-black text-white placeholder:text-gray-400 focus:ring-0 focus:border-white disabled:opacity-50 disabled:cursor-not-allowed [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              />
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="0.00"
+                  value={fromAmount}
+                  onChange={(e) => handleFromAmountChange(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={!authenticated}
+                  className="text-right text-xl font-bold border-2 border-white bg-black text-white placeholder:text-gray-400 focus:ring-0 focus:border-white disabled:opacity-50 disabled:cursor-not-allowed [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                {authenticated && getTokenBalance(fromToken.symbol) > 0 && (
+                  <Button
+                    onClick={() => {
+                      const maxBalance = getTokenBalance(fromToken.symbol);
+                      handleFromAmountChange(maxBalance.toString());
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="border-2 border-white bg-black text-white hover:bg-white hover:text-black px-3 py-1 text-xs"
+                  >
+                    MAX
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -417,7 +578,7 @@ export default function SwapUi() {
                 <div className="text-right">
                   <div className="text-xs text-white opacity-70">Balance</div>
                   <div className="font-medium text-white">
-                    {authenticated ? formatNumberWithCommas(parseFloat(toToken.balance)) : "--"}
+                    {getDisplayBalance(toToken.symbol)}
                   </div>
                 </div>
               </div>
@@ -445,19 +606,39 @@ export default function SwapUi() {
           ) : (
             <Button
               className="w-full bg-white text-black hover:bg-black hover:text-white border-2 border-white font-bold py-3 text-lg"
-              disabled={!fromAmount || Number.parseFloat(fromAmount) <= 0 || isLoadingQuote}
+              disabled={
+                !fromAmount || 
+                Number.parseFloat(fromAmount) <= 0 || 
+                isLoadingQuote ||
+                isLoadingBalances ||
+                Number.parseFloat(fromAmount) > getTokenBalance(fromToken.symbol)
+              }
             >
               {isLoadingQuote ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   Getting Quote...
                 </>
+              ) : isLoadingBalances ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Loading Balances...
+                </>
               ) : !fromAmount || Number.parseFloat(fromAmount) <= 0 ? (
                 "Enter Amount"
+              ) : Number.parseFloat(fromAmount) > getTokenBalance(fromToken.symbol) ? (
+                "Insufficient Balance"
               ) : (
                 "Swap Tokens"
               )}
             </Button>
+          )}
+
+          {/* Insufficient Balance Warning */}
+          {authenticated && fromAmount && Number.parseFloat(fromAmount) > getTokenBalance(fromToken.symbol) && (
+            <div className="text-center text-sm text-red-400 border-t-2 border-white pt-4">
+              Insufficient {fromToken.symbol} balance. Available: {getDisplayBalance(fromToken.symbol)}
+            </div>
           )}
 
           {/* Exchange Rate Info */}
