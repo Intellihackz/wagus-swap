@@ -6,8 +6,8 @@ import { toSolanaWalletConnectors } from "@privy-io/react-auth/solana";
 export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <PrivyProvider
-      appId="cmcy3d89s02isjy0mdw4kukcq"
-      clientId="client-WY6N79McPAxSYiNv1x2MAs4fAA7xiQGkzKDTpiH1Wmg8s"
+      appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID!}
+      clientId={process.env.NEXT_PUBLIC_CLIENT_ID!}
       config={{
         // Create embedded wallets for users who don't have a wallet
         embeddedWallets: {

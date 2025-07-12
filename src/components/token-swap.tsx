@@ -3,7 +3,7 @@
 import type React from "react";
 
 import { useState, useEffect, useCallback } from "react";
-import { ArrowUpDown, ChevronDown, Wallet, X } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Wallet, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -445,11 +445,18 @@ export default function SwapUi() {
           ) : (
             <Button
               className="w-full bg-white text-black hover:bg-black hover:text-white border-2 border-white font-bold py-3 text-lg"
-              disabled={!fromAmount || Number.parseFloat(fromAmount) <= 0}
+              disabled={!fromAmount || Number.parseFloat(fromAmount) <= 0 || isLoadingQuote}
             >
-              {!fromAmount || Number.parseFloat(fromAmount) <= 0
-                ? "Enter Amount"
-                : "Swap Tokens"}
+              {isLoadingQuote ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Getting Quote...
+                </>
+              ) : !fromAmount || Number.parseFloat(fromAmount) <= 0 ? (
+                "Enter Amount"
+              ) : (
+                "Swap Tokens"
+              )}
             </Button>
           )}
 
