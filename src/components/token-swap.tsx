@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo } from "react";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -31,7 +31,10 @@ export default function SwapUi() {
     toAmount,
     isLoadingBalances,
     isLoadingQuote,
+    isLoadingTransaction,
     quoteError,
+    transactionError,
+    transactionSignature,
     
     // Actions
     handleFromAmountChange,
@@ -40,6 +43,7 @@ export default function SwapUi() {
     handleMaxClick,
     fetchTokenBalances,
     resetState,
+    executeSwap,
     
     // Computed values
     getDisplayBalance,
@@ -92,21 +96,56 @@ export default function SwapUi() {
     }
   };
 
+  const handleExecuteSwap = async () => {
+    if (!walletAddress) {
+      console.error("No wallet address available");
+      return;
+    }
+
+    try {
+      console.log("Executing swap...");
+      
+      // Note: In a real implementation with Privy, you would need to get the wallet instance
+      // For now, we're passing the wallet address and letting the transaction hook handle it
+      const signature = await executeSwap(walletAddress);
+      
+      if (signature) {
+        console.log("Swap executed successfully!");
+        // The success message will be shown in the transaction status section
+        
+        // Show a brief message about balance refresh
+        setTimeout(() => {
+          console.log("🔄 Updating token balances...");
+        }, 1000);
+      }
+    } catch (error) {
+      console.error("Error executing swap:", error);
+    }
+  };
+
+  const handleRefreshBalances = async () => {
+    if (walletAddress && authenticated) {
+      console.log("Manually refreshing balances...");
+      await fetchTokenBalances(walletAddress, TOKENS);
+    }
+  };
+
   // Memoized computed values
   const hasAmount = useMemo(() => Boolean(fromAmount && Number.parseFloat(fromAmount) > 0), [fromAmount]);
   const isInsufficientBal = useMemo(() => isInsufficientBalance(fromAmount), [isInsufficientBalance, fromAmount]);
   const canPerformSwap = useMemo(() => canSwap(fromAmount, authenticated), [canSwap, fromAmount, authenticated]);
   const hasFromTokenBalance = useMemo(() => getTokenBalance(fromToken.symbol) > 0, [getTokenBalance, fromToken.symbol]);
+  const isLoading = useMemo(() => isLoadingQuote || isLoadingTransaction, [isLoadingQuote, isLoadingTransaction]);
 
   // Exchange rate calculation
   const exchangeRate = useMemo(() => {
-    if (!hasAmount || !toAmount || isLoadingQuote) return null;
+    if (!hasAmount || !toAmount || isLoading) return null;
     const fromNum = Number(fromAmount);
     const toNum = Number(toAmount);
     if (fromNum === 0 || isNaN(fromNum) || isNaN(toNum)) return null;
     const rate = toNum / fromNum;
     return formatNumberWithCommas(rate);
-  }, [hasAmount, toAmount, isLoadingQuote, fromAmount]);
+  }, [hasAmount, toAmount, isLoading, fromAmount]);
 
   // Show loading state while Privy is initializing
   if (!ready) {
@@ -191,13 +230,40 @@ export default function SwapUi() {
           <SwapButton
             isAuthenticated={authenticated}
             canSwap={canPerformSwap}
-            isLoadingQuote={isLoadingQuote}
+            isLoadingQuote={isLoading}
             isLoadingBalances={isLoadingBalances}
             hasAmount={hasAmount}
             isInsufficientBalance={isInsufficientBal}
             onConnect={handleConnectWallet}
-            onSwap={() => {/* TODO: Implement actual swap */}}
+            onSwap={handleExecuteSwap}
           />
+
+          {/* Transaction Success */}
+          {transactionSignature && (
+            <div className="text-center text-sm text-green-400 border-t-2 border-white pt-4">
+              <div className="mb-2">Swap successful! 🎉</div>
+              <div className="mb-2 text-xs text-gray-400 flex items-center justify-center gap-2">
+                {isLoadingBalances ? "Updating balances..." : "Balances updated"}
+                <Button
+                  onClick={handleRefreshBalances}
+                  variant="ghost"
+                  size="sm"
+                  disabled={isLoadingBalances}
+                  className="h-6 w-6 p-0 text-gray-400 hover:text-white"
+                >
+                  <RefreshCw className={`h-3 w-3 ${isLoadingBalances ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+              <a
+                href={`https://solscan.io/tx/${transactionSignature}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline break-all"
+              >
+                View transaction
+              </a>
+            </div>
+          )}
 
           {/* Insufficient Balance Warning */}
           {authenticated && hasAmount && isInsufficientBal && (
@@ -206,17 +272,17 @@ export default function SwapUi() {
             </div>
           )}
 
-          {/* Exchange Rate Info */}
-          {authenticated && exchangeRate && (
-            <div className="text-center text-sm text-white opacity-70 border-t-2 border-white pt-4">
-              1 ${fromToken.symbol} = {exchangeRate} ${toToken.symbol}
-            </div>
-          )}
-
           {/* Quote Error */}
           {quoteError && (
             <div className="text-center text-sm text-red-400 border-t-2 border-white pt-4">
               {quoteError}
+            </div>
+          )}
+
+          {/* Transaction Error */}
+          {transactionError && (
+            <div className="text-center text-sm text-red-400 border-t-2 border-white pt-4">
+              Transaction failed: {transactionError}
             </div>
           )}
         </CardContent>

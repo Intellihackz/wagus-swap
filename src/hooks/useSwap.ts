@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { Token } from "@/types/token";
 import { useJupiterQuote } from "./useJupiterQuote";
 import { useTokenBalances } from "./useTokenBalances";
+import { useSwapTransaction } from "./useSwapTransaction";
 import { formatNumberWithCommas, removeNegativeFromInput } from "@/utils/formatters";
 import { TOKENS, QUOTE_DEBOUNCE_MS } from "@/constants/tokens";
 
@@ -15,8 +16,10 @@ export const useSwap = () => {
   const {
     isLoadingQuote,
     quoteError,
+    currentQuoteResponse,
     getJupiterQuote, 
     getTokenDecimals, 
+    getSwapTransaction,
     clearQuoteError,
     cancelPendingRequests
   } = useJupiterQuote();
@@ -28,6 +31,14 @@ export const useSwap = () => {
     clearBalances,
     getTokenBalance,
   } = useTokenBalances();
+
+  const {
+    isLoadingTransaction,
+    transactionError,
+    transactionSignature,
+    sendSwapTransaction,
+    clearTransactionState,
+  } = useSwapTransaction();
 
   // Cleanup effect to cancel pending requests for better performance
   useEffect(() => {
@@ -136,17 +147,74 @@ export const useSwap = () => {
 
   const canSwap = useCallback((amount: string, isAuthenticated: boolean): boolean => {
     if (!isAuthenticated || !amount || Number.parseFloat(amount) <= 0) return false;
-    if (isLoadingQuote || isLoadingBalances) return false;
+    if (isLoadingQuote || isLoadingBalances || isLoadingTransaction) return false;
     if (isInsufficientBalance(amount)) return false;
     return true;
-  }, [isLoadingQuote, isLoadingBalances, isInsufficientBalance]);
+  }, [isLoadingQuote, isLoadingBalances, isLoadingTransaction, isInsufficientBalance]);
 
   const resetState = useCallback(() => {
     setFromAmount("");
     setToAmount("");
     clearBalances();
     clearQuoteError();
-  }, [clearBalances, clearQuoteError]);
+    clearTransactionState();
+  }, [clearBalances, clearQuoteError, clearTransactionState]);
+
+  const executeSwap = useCallback(async (userPublicKey: string) => {
+    if (!currentQuoteResponse) {
+      console.error('No quote available for swap');
+      return null;
+    }
+
+    try {
+      // Step 1: Get the swap transaction from Jupiter
+      const swapTransaction = await getSwapTransaction(userPublicKey);
+      
+      if (!swapTransaction) {
+        console.error('Failed to get swap transaction');
+        return null;
+      }
+
+      console.log('Swap transaction ready:', {
+        lastValidBlockHeight: swapTransaction.lastValidBlockHeight,
+        prioritizationFeeLamports: swapTransaction.prioritizationFeeLamports,
+        computeUnitLimit: swapTransaction.computeUnitLimit,
+        dynamicSlippageReport: swapTransaction.dynamicSlippageReport
+      });
+
+      // Step 2: Send the transaction to the blockchain using Privy
+      const signature = await sendSwapTransaction(swapTransaction, userPublicKey);
+      
+      if (signature) {
+        console.log('Swap executed successfully with signature:', signature);
+        
+        // Reset form after successful swap
+        setFromAmount("");
+        setToAmount("");
+        
+        // Wait a moment for the transaction to be processed, then refresh balances
+        if (userPublicKey) {
+          console.log('Refreshing token balances after successful swap...');
+          // Small delay to ensure transaction is processed
+          setTimeout(async () => {
+            try {
+              await fetchTokenBalances(userPublicKey, TOKENS);
+              console.log('✅ Token balances updated after swap');
+            } catch (error) {
+              console.error('Failed to refresh balances after swap:', error);
+            }
+          }, 2000); // 2 second delay
+        }
+        
+        return signature;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error executing swap:', error);
+      return null;
+    }
+  }, [currentQuoteResponse, getSwapTransaction, sendSwapTransaction]);
 
   return {
     // State
@@ -157,7 +225,10 @@ export const useSwap = () => {
     tokenBalances,
     isLoadingBalances,
     isLoadingQuote,
+    isLoadingTransaction,
     quoteError,
+    transactionError,
+    transactionSignature,
     
     // Actions
     handleFromAmountChange,
@@ -166,6 +237,7 @@ export const useSwap = () => {
     handleMaxClick,
     fetchTokenBalances,
     resetState,
+    executeSwap,
     
     // Computed values
     getDisplayBalance,

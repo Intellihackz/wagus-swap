@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef } from "react";
-import type { QuoteResponse } from "@/types/token";
+import type { QuoteResponse, SwapResponse } from "@/types/token";
 import { JUPITER_API_BASE, JUPITER_TOKEN_LIST, DEFAULT_SLIPPAGE_BPS } from "@/constants/tokens";
 
 export const useJupiterQuote = () => {
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [currentQuoteResponse, setCurrentQuoteResponse] = useState<QuoteResponse | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const tokenDecimalsCache = useRef<Map<string, number>>(new Map());
 
@@ -89,6 +90,9 @@ export const useJupiterQuote = () => {
       
       const quoteData: QuoteResponse = await response.json();
       
+      // Store the full quote response for later use in swap
+      setCurrentQuoteResponse(quoteData);
+      
       // Debug logging
       console.log('Jupiter API Response:', {
         inputMint,
@@ -122,6 +126,57 @@ export const useJupiterQuote = () => {
     setQuoteError(null);
   }, []);
 
+  const getSwapTransaction = useCallback(async (
+    userPublicKey: string
+  ): Promise<SwapResponse | null> => {
+    if (!currentQuoteResponse) {
+      setQuoteError('No quote available. Please get a quote first.');
+      return null;
+    }
+
+    try {
+      setIsLoadingQuote(true);
+      setQuoteError(null);
+
+      const swapResponse = await fetch(`${JUPITER_API_BASE}/swap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          quoteResponse: currentQuoteResponse,
+          userPublicKey: userPublicKey,
+          
+          // ADDITIONAL PARAMETERS TO OPTIMIZE FOR TRANSACTION LANDING
+          dynamicComputeUnitLimit: true,
+          dynamicSlippage: true,
+          prioritizationFeeLamports: {
+            priorityLevelWithMaxLamports: {
+              maxLamports: 1000000,
+              priorityLevel: "veryHigh"
+            }
+          }
+        })
+      });
+
+      if (!swapResponse.ok) {
+        throw new Error(`HTTP error! status: ${swapResponse.status}`);
+      }
+
+      const swapData: SwapResponse = await swapResponse.json();
+      
+      console.log('Swap transaction response:', swapData);
+      
+      return swapData;
+    } catch (error: any) {
+      console.error('Error getting swap transaction:', error);
+      setQuoteError('Failed to get swap transaction');
+      return null;
+    } finally {
+      setIsLoadingQuote(false);
+    }
+  }, [currentQuoteResponse]);
+
   // Cleanup function to cancel pending requests
   const cancelPendingRequests = useCallback(() => {
     if (abortControllerRef.current) {
@@ -133,8 +188,10 @@ export const useJupiterQuote = () => {
   return {
     isLoadingQuote,
     quoteError,
+    currentQuoteResponse,
     getJupiterQuote,
     getTokenDecimals,
+    getSwapTransaction,
     clearQuoteError,
     cancelPendingRequests,
   };

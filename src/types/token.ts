@@ -21,6 +21,28 @@ export interface QuoteResponse {
   routePlan: any[];
 }
 
+export interface SwapResponse {
+  swapTransaction: string;
+  lastValidBlockHeight: number;
+  prioritizationFeeLamports: number;
+  computeUnitLimit: number;
+  prioritizationType: {
+    computeBudget: {
+      microLamports: number;
+      estimatedMicroLamports: number;
+    };
+  };
+  dynamicSlippageReport: {
+    slippageBps: number;
+    otherAmount: number;
+    simulatedIncurredSlippageBps: number;
+    amplificationRatio: string;
+    categoryName: string;
+    heuristicMaxSlippageBps: number;
+  };
+  simulationError: string | null;
+}
+
 export interface SwapState {
   fromToken: Token;
   toToken: Token;
