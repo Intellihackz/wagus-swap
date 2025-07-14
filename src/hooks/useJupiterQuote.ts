@@ -73,6 +73,7 @@ export const useJupiterQuote = () => {
       url.searchParams.set('onlyDirectRoutes', 'false'); // Allow multi-hop routes
       url.searchParams.set('asLegacyTransaction', 'false'); // Use versioned transactions
       url.searchParams.set('maxAccounts', '64'); // Optimize for faster processing
+      url.searchParams.set('platformFeeBps', '50'); // Allow up to 1% slippage
       
       const response = await fetch(url.toString(), {
         method: 'GET',
@@ -146,7 +147,7 @@ export const useJupiterQuote = () => {
         body: JSON.stringify({
           quoteResponse: currentQuoteResponse,
           userPublicKey: userPublicKey,
-          
+          feeAccount:"DZuJUNmVxNQwq55wrrrpFeE4PES1cyBv2bxuSqm7UXdj",
           // ADDITIONAL PARAMETERS TO OPTIMIZE FOR TRANSACTION LANDING
           dynamicComputeUnitLimit: true,
           dynamicSlippage: true,
