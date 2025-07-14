@@ -19,12 +19,12 @@ export const useSwapTransaction = () => {
   const { sendTransaction } = useSendTransaction();
   const { wallets } = useSolanaWallets();
 
-  const connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
-
   const sendSwapTransaction = useCallback(async (
     swapResponse: SwapResponse,
     userPublicKey: string
   ): Promise<string | null> => {
+    const connection = new Connection(SOLANA_RPC_ENDPOINT, 'confirmed');
+    
     try {
       setIsLoadingTransaction(true);
       setTransactionError(null);
@@ -95,8 +95,8 @@ export const useSwapTransaction = () => {
           if (confirmation.value.err) {
             throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
           }
-        } catch (confirmError: any) {
-          console.warn("Manual confirmation failed, but transaction may have succeeded:", confirmError.message);
+        } catch (confirmError: unknown) {
+          console.warn("Manual confirmation failed, but transaction may have succeeded:", confirmError instanceof Error ? confirmError.message : 'Unknown error');
           // Don't throw here as Privy may have already handled confirmation
         }
       }
@@ -105,11 +105,11 @@ export const useSwapTransaction = () => {
       setTransactionSignature(receipt.signature);
       return receipt.signature;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error sending swap transaction:', error);
       
       let errorMessage = 'Failed to send transaction';
-      if (error.message) {
+      if (error instanceof Error && error.message) {
         errorMessage = error.message;
       }
       
@@ -118,7 +118,7 @@ export const useSwapTransaction = () => {
     } finally {
       setIsLoadingTransaction(false);
     }
-  }, [sendTransaction, wallets, connection]);
+  }, [sendTransaction, wallets]);
 
   const clearTransactionState = useCallback(() => {
     setTransactionError(null);

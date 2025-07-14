@@ -214,7 +214,7 @@ export const useSwap = () => {
       console.error('Error executing swap:', error);
       return null;
     }
-  }, [currentQuoteResponse, getSwapTransaction, sendSwapTransaction]);
+  }, [currentQuoteResponse, getSwapTransaction, sendSwapTransaction, fetchTokenBalances]);
 
   return {
     // State

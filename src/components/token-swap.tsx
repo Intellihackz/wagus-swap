@@ -77,7 +77,7 @@ export default function SwapUi() {
         walletAddress: walletAddress,
       });
     }
-  }, [authenticated, user?.id, walletAddress]); // More specific dependencies
+  }, [authenticated, user?.id, walletAddress, user]); // More specific dependencies
 
   const handleConnectWallet = async () => {
     try {
@@ -136,16 +136,6 @@ export default function SwapUi() {
   const canPerformSwap = useMemo(() => canSwap(fromAmount, authenticated), [canSwap, fromAmount, authenticated]);
   const hasFromTokenBalance = useMemo(() => getTokenBalance(fromToken.symbol) > 0, [getTokenBalance, fromToken.symbol]);
   const isLoading = useMemo(() => isLoadingQuote || isLoadingTransaction, [isLoadingQuote, isLoadingTransaction]);
-
-  // Exchange rate calculation
-  const exchangeRate = useMemo(() => {
-    if (!hasAmount || !toAmount || isLoading) return null;
-    const fromNum = Number(fromAmount);
-    const toNum = Number(toAmount);
-    if (fromNum === 0 || isNaN(fromNum) || isNaN(toNum)) return null;
-    const rate = toNum / fromNum;
-    return formatNumberWithCommas(rate);
-  }, [hasAmount, toAmount, isLoading, fromAmount]);
 
   // Show loading state while Privy is initializing
   if (!ready) {

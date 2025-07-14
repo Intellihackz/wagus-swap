@@ -26,7 +26,7 @@ export const useJupiterQuote = () => {
       
       if (response.ok) {
         const tokens = await response.json();
-        const token = tokens.find((t: any) => t.address === mintAddress);
+        const token = tokens.find((t: { address: string; symbol: string; decimals: number }) => t.address === mintAddress);
         if (token) {
           console.log(`Found token ${token.symbol} with ${token.decimals} decimals`);
           
@@ -35,7 +35,7 @@ export const useJupiterQuote = () => {
           return token.decimals;
         }
       }
-    } catch (error) {
+    } catch {
       console.log('Could not fetch token info from Jupiter, using default decimals');
     }
     return null;
@@ -109,8 +109,8 @@ export const useJupiterQuote = () => {
       console.log('Converted output amount:', outputAmount);
       
       return outputAmount;
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
         console.log('Quote request was cancelled');
         return null;
       }
@@ -168,7 +168,7 @@ export const useJupiterQuote = () => {
       console.log('Swap transaction response:', swapData);
       
       return swapData;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error getting swap transaction:', error);
       setQuoteError('Failed to get swap transaction');
       return null;

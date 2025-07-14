@@ -16,9 +16,9 @@ export interface QuoteResponse {
   otherAmountThreshold: string;
   swapMode: string;
   slippageBps: number;
-  platformFee?: any;
+  platformFee?: unknown;
   priceImpactPct: string;
-  routePlan: any[];
+  routePlan: unknown[];
 }
 
 export interface SwapResponse {
