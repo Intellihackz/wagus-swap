@@ -1,7 +1,18 @@
 import { useState, useCallback } from "react";
 import { Connection, VersionedTransaction } from "@solana/web3.js";
-import { useSendTransaction, useSolanaWallets } from '@privy-io/react-auth/solana';
 import type { SwapResponse } from "@/types/token";
+
+// Conditional import of Privy hooks to prevent errors in demo mode
+let useSendTransaction: any = null;
+let useSolanaWallets: any = null;
+
+try {
+  const privyHooks = require('@privy-io/react-auth/solana');
+  useSendTransaction = privyHooks.useSendTransaction;
+  useSolanaWallets = privyHooks.useSolanaWallets;
+} catch (error) {
+  console.warn('Privy hooks not available, using fallback');
+}
 
 // Solana RPC endpoint - using Helius for better performance and reliability
 const SOLANA_RPC_ENDPOINT = "https://mainnet.helius-rpc.com/?api-key=75f1f27b-b99d-4578-9efd-c585e383ac7c";
@@ -15,9 +26,12 @@ export const useSwapTransaction = () => {
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null);
 
-  // Privy hooks for Solana wallet integration
-  const { sendTransaction } = useSendTransaction();
-  const { wallets } = useSolanaWallets();
+  // Fallback implementation - always return null to prevent Privy errors
+  const sendTransaction = null;
+  const wallets: any[] = [];
+  
+  // Note: This hook is currently disabled to prevent Privy errors
+  // Enable when proper Privy configuration is available
 
   const sendSwapTransaction = useCallback(async (
     swapResponse: SwapResponse,
@@ -30,6 +44,11 @@ export const useSwapTransaction = () => {
       setTransactionError(null);
       setTransactionSignature(null);
 
+      // Check if Privy is available
+      if (!sendTransaction) {
+        throw new Error("Wallet functionality not available in demo mode");
+      }
+      
       // Check if we have a connected Solana wallet
       if (!wallets || wallets.length === 0) {
         throw new Error("No Solana wallet connected");
