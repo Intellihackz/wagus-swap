@@ -1,7 +1,7 @@
 import React, { memo } from "react";
 import { Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatAddress } from "@/utils/formatters";
+import { formatWalletAddress } from "@/utils/formatters";
 
 interface WalletStatusProps {
   walletAddress: string;
@@ -23,7 +23,7 @@ export const WalletStatus = memo<WalletStatusProps>(({ walletAddress, onDisconne
             onClick={copyToClipboard}
             title="Click to copy address"
           >
-            {formatAddress(walletAddress)}
+            {formatWalletAddress(walletAddress)}
           </span>
         </div>
         <Button

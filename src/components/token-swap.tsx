@@ -1,12 +1,17 @@
 "use client";
 
 import React, { useEffect, useMemo } from "react";
-import { ArrowUpDown, RefreshCw } from "lucide-react";
+import { ArrowUpDown, RefreshCw, Settings, Palette, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import Image from "next/image";
 import { usePrivy } from "@privy-io/react-auth";
+import { useDemoMode } from "@/components/providers";
+
+// Contexts
+import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
+import { TierProvider, useTier } from "@/contexts/TierContext";
 
 // Hooks
 import { useSwap } from "@/hooks/useSwap";
@@ -15,13 +20,41 @@ import { useSwap } from "@/hooks/useSwap";
 import { TokenSelector } from "@/components/TokenSelector";
 import { WalletStatus } from "@/components/WalletStatus";
 import { SwapButton } from "@/components/SwapButton";
+import { ThemeSelector } from "@/components/ThemeSelector";
+import { TierStatus } from "@/components/TierStatus";
+import { FeeCalculator } from "@/components/FeeCalculator";
+import { AdminToggle } from "@/components/AdminToggle";
 
 // Utils
 import { formatNumberWithCommas } from "@/utils/formatters";
 import { TOKENS } from "@/constants/tokens";
+import { cn } from "@/lib/utils";
 
-export default function SwapUi() {
-  const { ready, authenticated, login, logout, user } = usePrivy();
+function SwapUiInner() {
+  const isDemoMode = useDemoMode();
+  
+  // Use Privy hooks only if not in demo mode
+  let ready = true;
+  let authenticated = false;
+  let login = async () => console.log('Demo mode - wallet connection disabled');
+  let logout = async () => console.log('Demo mode - wallet disconnection disabled');
+  let user = null;
+  
+  if (!isDemoMode) {
+    try {
+      const privyHook = usePrivy();
+      ready = privyHook.ready;
+      authenticated = privyHook.authenticated;
+      login = privyHook.login;
+      logout = privyHook.logout;
+      user = privyHook.user;
+    } catch (error) {
+      console.log('Error using Privy hooks:', error);
+    }
+  }
+  
+  const { currentTheme } = useTheme();
+  const { userTier } = useTier();
   
   const {
     // State
@@ -140,143 +173,264 @@ export default function SwapUi() {
   // Show loading state while Privy is initializing
   if (!ready) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center p-4">
-        <div className="text-white text-lg">Loading...</div>
+      <div 
+        className="min-h-screen flex items-center justify-center p-4"
+        style={{ backgroundColor: currentTheme.colors.background }}
+      >
+        <div className="text-lg" style={{ color: currentTheme.colors.text }}>Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-4 relative">
-      {/* Wallet Status - Upper Right Corner */}
-      {authenticated && walletAddress && (
-        <WalletStatus 
-          walletAddress={walletAddress} 
-          onDisconnect={handleDisconnectWallet} 
-        />
-      )}
-
-      <Card className="w-full max-w-md border-2 border-white bg-black">
-        <CardHeader className="text-center border-b-2 border-white">
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <Image
-              src="/wagus-logo.png"
-              alt="WAGUS Logo"
-              width={40}
-              height={40}
-              className="object-contain"
-            />
-            <CardTitle className="text-2xl font-bold text-white">
-              WAGUS Swap
-            </CardTitle>
-          </div>
-        </CardHeader>
+    <div 
+      className="min-h-screen flex items-center justify-center p-4 relative transition-all duration-300"
+      style={{ backgroundColor: currentTheme.colors.background }}
+    >
+      {/* Top Navigation Bar */}
+      <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-10">
+        {/* Theme Selector */}
+        <div className="flex items-center gap-2">
+          <ThemeSelector />
+        </div>
         
-        <CardContent className="p-6 space-y-6">
-          {/* From Token Section */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium text-white">From</Label>
-            <TokenSelector
-              token={fromToken}
-              amount={fromAmount}
-              balance={getDisplayBalance(fromToken.symbol, authenticated)}
-              isAuthenticated={authenticated}
-              showMaxButton={true}
-              hasBalance={hasFromTokenBalance}
-              onTokenSelect={(token) => handleTokenSelect(token, true)}
-              onAmountChange={handleFromAmountChange}
-              onMaxClick={handleMaxClick}
+        {/* Wallet Status and Tier Info */}
+        <div className="flex items-center gap-3">
+          <AdminToggle />
+          {authenticated && (
+            <TierStatus compact={true} />
+          )}
+          {authenticated && walletAddress && (
+            <WalletStatus 
+              walletAddress={walletAddress} 
+              onDisconnect={handleDisconnectWallet} 
             />
-          </div>
+          )}
+        </div>
+      </div>
 
-          {/* Swap Button */}
-          <div className="flex justify-center">
-            <Button
-              onClick={handleSwapTokens}
-              variant="outline"
-              size="icon"
-              disabled={!authenticated}
-              className="border-2 border-white bg-black text-white hover:bg-white hover:text-black rounded-full h-10 w-10 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ArrowUpDown className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* To Token Section */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium text-white">To</Label>
-            <TokenSelector
-              token={toToken}
-              amount={toAmount ? formatNumberWithCommas(Number(toAmount)) : ""}
-              balance={getDisplayBalance(toToken.symbol, authenticated)}
-              isAuthenticated={authenticated}
-              isReadOnly={true}
-              placeholder={isLoadingQuote ? "Loading..." : "0.00"}
-              onTokenSelect={(token) => handleTokenSelect(token, false)}
-            />
-          </div>
-
-          {/* Main Action Button */}
-          <SwapButton
-            isAuthenticated={authenticated}
-            canSwap={canPerformSwap}
-            isLoadingQuote={isLoading}
-            isLoadingBalances={isLoadingBalances}
-            hasAmount={hasAmount}
-            isInsufficientBalance={isInsufficientBal}
-            onConnect={handleConnectWallet}
-            onSwap={handleExecuteSwap}
-          />
-
-          {/* Transaction Success */}
-          {transactionSignature && (
-            <div className="text-center text-sm text-green-400 border-t-2 border-white pt-4">
-              <div className="mb-2">Swap successful! 🎉</div>
-              <div className="mb-2 text-xs text-gray-400 flex items-center justify-center gap-2">
-                {isLoadingBalances ? "Updating balances..." : "Balances updated"}
-                <Button
-                  onClick={handleRefreshBalances}
-                  variant="ghost"
-                  size="sm"
-                  disabled={isLoadingBalances}
-                  className="h-6 w-6 p-0 text-gray-400 hover:text-white"
-                >
-                  <RefreshCw className={`h-3 w-3 ${isLoadingBalances ? 'animate-spin' : ''}`} />
-                </Button>
-              </div>
-              <a
-                href={`https://solscan.io/tx/${transactionSignature}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300 underline break-all"
+      {/* Main Swap Interface */}
+      <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Panel - Tier Status (Desktop) */}
+        <div className="hidden lg:block">
+          {authenticated && (
+            <TierStatus />
+          )}
+        </div>
+        
+        {/* Center Panel - Main Swap Card */}
+        <Card 
+          className={cn(
+            "w-full border-2 transition-all duration-300 shadow-xl",
+            userTier !== 'free' && "shadow-2xl",
+            currentTheme.name === 'neon-cyber' && userTier !== 'free' && "shadow-cyan-500/20",
+            currentTheme.name === 'golden-legend' && userTier !== 'free' && "shadow-yellow-500/20"
+          )}
+          style={{
+            backgroundColor: currentTheme.colors.surface,
+            borderColor: userTier !== 'free' ? currentTheme.colors.primary : currentTheme.colors.border
+          }}
+        >
+          <CardHeader 
+            className="text-center border-b-2"
+            style={{ borderColor: currentTheme.colors.border }}
+          >
+            <div className="flex items-center justify-center gap-3 mb-2">
+              <Image
+                src="/wagus-logo.png"
+                alt="WAGUS Logo"
+                width={40}
+                height={40}
+                className="object-contain"
+              />
+              <CardTitle 
+                className="text-2xl font-bold flex items-center gap-2"
+                style={{ color: currentTheme.colors.text }}
               >
-                View transaction
-              </a>
+                WAGUS Swap
+                {userTier !== 'free' && (
+                  <Crown className="h-6 w-6" style={{ color: currentTheme.colors.primary }} />
+                )}
+              </CardTitle>
             </div>
-          )}
+            
+            {/* Mobile Tier Status */}
+            <div className="lg:hidden mt-3">
+              {authenticated && (
+                <TierStatus compact={true} />
+              )}
+            </div>
+          </CardHeader>
+        
+          <CardContent className="p-6 space-y-6">
+            {/* From Token Section */}
+            <div className="space-y-2">
+              <Label 
+                className="text-sm font-medium"
+                style={{ color: currentTheme.colors.text }}
+              >
+                From
+              </Label>
+              <TokenSelector
+                token={fromToken}
+                amount={fromAmount}
+                balance={getDisplayBalance(fromToken.symbol, authenticated)}
+                isAuthenticated={authenticated}
+                showMaxButton={true}
+                hasBalance={hasFromTokenBalance}
+                showTierBadge={userTier !== 'free'}
+                onTokenSelect={(token) => handleTokenSelect(token, true)}
+                onAmountChange={handleFromAmountChange}
+                onMaxClick={handleMaxClick}
+              />
+            </div>
 
-          {/* Insufficient Balance Warning */}
-          {authenticated && hasAmount && isInsufficientBal && (
-            <div className="text-center text-sm text-red-400 border-t-2 border-white pt-4">
-              Insufficient {fromToken.symbol} balance. Available: {getDisplayBalance(fromToken.symbol, authenticated)}
+            {/* Swap Direction Button */}
+            <div className="flex justify-center">
+              <Button
+                onClick={handleSwapTokens}
+                variant="outline"
+                size="icon"
+                disabled={!authenticated}
+                className={cn(
+                  "border-2 rounded-full h-12 w-12 transition-all duration-200",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                  userTier !== 'free' && "shadow-lg"
+                )}
+                style={{
+                  backgroundColor: currentTheme.colors.surface,
+                  borderColor: currentTheme.colors.primary,
+                  color: currentTheme.colors.primary
+                }}
+              >
+                <ArrowUpDown className="h-5 w-5" />
+              </Button>
             </div>
-          )}
 
-          {/* Quote Error */}
-          {quoteError && (
-            <div className="text-center text-sm text-red-400 border-t-2 border-white pt-4">
-              {quoteError}
+            {/* To Token Section */}
+            <div className="space-y-2">
+              <Label 
+                className="text-sm font-medium"
+                style={{ color: currentTheme.colors.text }}
+              >
+                To
+              </Label>
+              <TokenSelector
+                token={toToken}
+                amount={toAmount ? formatNumberWithCommas(Number(toAmount)) : ""}
+                balance={getDisplayBalance(toToken.symbol, authenticated)}
+                isAuthenticated={authenticated}
+                isReadOnly={true}
+                placeholder={isLoadingQuote ? "Loading..." : "0.00"}
+                showTierBadge={userTier !== 'free'}
+                onTokenSelect={(token) => handleTokenSelect(token, false)}
+              />
             </div>
-          )}
 
-          {/* Transaction Error */}
-          {transactionError && (
-            <div className="text-center text-sm text-red-400 border-t-2 border-white pt-4">
-              Transaction failed: {transactionError}
-            </div>
+            {/* Main Action Button */}
+            <SwapButton
+              isAuthenticated={authenticated}
+              canSwap={canPerformSwap}
+              isLoadingQuote={isLoading}
+              isLoadingBalances={isLoadingBalances}
+              hasAmount={hasAmount}
+              isInsufficientBalance={isInsufficientBal}
+              swapAmount={fromAmount ? parseFloat(fromAmount) : 0}
+              onConnect={handleConnectWallet}
+              onSwap={handleExecuteSwap}
+            />
+
+            {/* Status Messages */}
+            {(transactionSignature || (authenticated && hasAmount && isInsufficientBal) || quoteError || transactionError) && (
+              <div 
+                className="border-t-2 pt-4 space-y-3"
+                style={{ borderColor: currentTheme.colors.border }}
+              >
+                {/* Transaction Success */}
+                {transactionSignature && (
+                  <div className="text-center text-sm text-green-400">
+                    <div className="mb-2">Swap successful! 🎉</div>
+                    <div className="mb-2 text-xs flex items-center justify-center gap-2" style={{ color: currentTheme.colors.textMuted }}>
+                      {isLoadingBalances ? "Updating balances..." : "Balances updated"}
+                      <Button
+                        onClick={handleRefreshBalances}
+                        variant="ghost"
+                        size="sm"
+                        disabled={isLoadingBalances}
+                        className="h-6 w-6 p-0"
+                        style={{ color: currentTheme.colors.textMuted }}
+                      >
+                        <RefreshCw className={`h-3 w-3 ${isLoadingBalances ? 'animate-spin' : ''}`} />
+                      </Button>
+                    </div>
+                    <a
+                      href={`https://solscan.io/tx/${transactionSignature}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline break-all"
+                    >
+                      View transaction
+                    </a>
+                  </div>
+                )}
+
+                {/* Insufficient Balance Warning */}
+                {authenticated && hasAmount && isInsufficientBal && (
+                  <div className="text-center text-sm text-red-400">
+                    Insufficient {fromToken.symbol} balance. Available: {getDisplayBalance(fromToken.symbol, authenticated)}
+                  </div>
+                )}
+
+                {/* Quote Error */}
+                {quoteError && (
+                  <div className="text-center text-sm text-red-400">
+                    {quoteError}
+                  </div>
+                )}
+
+                {/* Transaction Error */}
+                {transactionError && (
+                  <div className="text-center text-sm text-red-400">
+                    Transaction failed: {transactionError}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        
+        {/* Right Panel - Fee Calculator (Desktop) */}
+        <div className="hidden lg:block">
+          {authenticated && hasAmount && (
+            <FeeCalculator 
+              swapAmount={fromAmount ? parseFloat(fromAmount) : 0}
+              showComparison={true}
+            />
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+      
+      {/* Mobile Fee Calculator */}
+      <div className="lg:hidden fixed bottom-4 left-4 right-4 z-10">
+        {authenticated && hasAmount && (
+          <FeeCalculator 
+            swapAmount={fromAmount ? parseFloat(fromAmount) : 0}
+            compact={true}
+            showComparison={false}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+// Main component with providers
+export default function SwapUi() {
+  return (
+    <ThemeProvider>
+      <TierProvider>
+        <SwapUiInner />
+      </TierProvider>
+    </ThemeProvider>
   );
 }

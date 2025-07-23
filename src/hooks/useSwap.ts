@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { Token } from "@/types/token";
 import { useJupiterQuote } from "./useJupiterQuote";
 import { useTokenBalances } from "./useTokenBalances";
-import { useSwapTransaction } from "./useSwapTransaction";
+import { useSwapTransactionWrapper } from "./useSwapTransactionWrapper";
+import { useDemoMode } from "@/components/providers";
 import { formatNumberWithCommas, removeNegativeFromInput } from "@/utils/formatters";
 import { TOKENS, QUOTE_DEBOUNCE_MS } from "@/constants/tokens";
 
@@ -12,6 +13,8 @@ export const useSwap = () => {
   const [fromAmount, setFromAmount] = useState("");
   const [toAmount, setToAmount] = useState("");
 
+  const isDemoMode = useDemoMode();
+  
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const {
     isLoadingQuote,
@@ -32,13 +35,14 @@ export const useSwap = () => {
     getTokenBalance,
   } = useTokenBalances();
 
+  // Use wrapper hook that handles demo/real mode safely
   const {
     isLoadingTransaction,
     transactionError,
     transactionSignature,
     sendSwapTransaction,
     clearTransactionState,
-  } = useSwapTransaction();
+  } = useSwapTransactionWrapper();
 
   // Cleanup effect to cancel pending requests for better performance
   useEffect(() => {
